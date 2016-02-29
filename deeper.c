@@ -160,7 +160,7 @@ int step[]              = {0x01, 6,     077};
 // 1) gets shifts the value to the "normal" range
 // 2) masks off bits that are not related to our value
 #define GET(item)          ( (ledstatus    [ item[0] ] >> item[1]) & item[2] )
-#define GETSWITCH(flip)   !( (switchstatus [ flip[0] ] >> flip[1]) & flip[2] )
+#define GETSWITCH(flip)    ( (switchstatus [ flip[0] ] >> flip[1]) & flip[2] )
 #define GETSWITCHES(flip)  ( (switchstatus [ flip[0] ] >> flip[1]) & flip[2] )
 
 
