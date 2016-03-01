@@ -12,7 +12,7 @@ Deeper Thought 2 is a fork of [Deeper Thought by Norman Davie](https://groups.go
 * **110** = Binary Clock (From top to bottom: Hour, Minute, Second, Month, Day)
 * **001** = Snake Mode (3 LEDs move across a row then down to the next row in the opposite direction)
 * **000** = Test Mode (All LEDs on steady, except some of the columns of LEDs on the right blink off for 20ms)
-* **010** = {Spare}
+* **010** = Pong Mode (Bouncing Ball)
 * **100** = {Spare}
 
 #####Expanded the timing switches from 6 to 12 switches
