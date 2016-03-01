@@ -195,6 +195,37 @@ int rand_flag( int max_rand, int max_true )
 	}
 }
 
+void ClearAllLEDs()
+{
+    STORE(programCounter,    0);
+    STORE(dataField,         0);
+    STORE(instField,         0);
+    STORE(linkLED,           0);
+    STORE(programCounter,    0);
+    STORE(memoryAddress,     0);
+    STORE(memoryBuffer,      0);
+    STORE(accumulator,       0);
+    STORE(multiplierQuotient,0);
+    STORE(stepCounter,       0);
+    STORE(andLED,            0);
+    STORE(tadLED,            0);
+    STORE(iszLED,            0);
+    STORE(dcaLED,            0);
+    STORE(jmsLED,            0);
+    STORE(iotLED,            0);
+    STORE(jmpLED,            0);
+    STORE(oprLED,            0);
+    STORE(fetchLED,          0);
+    STORE(executeLED,        0);
+    STORE(deferLED,          0);
+    STORE(wordCountLED,      0);
+    STORE(currentAddressLED, 0);
+    STORE(breakLED,          0);
+    STORE(ionLED,            0);
+    STORE(pauseLED,          0);
+    STORE(runLED,            0);
+}
+
 
 int main( int argc, char *argv[] )
 {
@@ -482,6 +513,74 @@ int main( int argc, char *argv[] )
 			break;
 			
 			break;
+      		  case 2: //010 pong / bouncing ball
+        	  {
+         		static long xDirection = 1;
+	 	        static long yDirection = 1;
+		        static long ball = 1;
+          		static long yBall = 1;
+
+          		ClearAllLEDs();
+
+          		// switch directions if we're too far right
+          		if ((ball >> 1) < 1)
+         		{
+            			xDirection = 1;
+          		}
+
+          		// switch directions if we're too far left
+          		if ((ball << 1) > (unsigned long) memoryBuffer[2])
+	          	{
+		        	xDirection = 0;
+		        }
+
+          		if (xDirection)
+ 			{
+             			ball = ball << 1;
+          		}
+
+          		if (xDirection)
+             			ball = ball << 1;
+          		else
+             			ball = ball >> 1;
+
+          		yBall = yBall + yDirection;
+          		switch(yBall)
+          		{
+          			case 0:  // too far up
+             				yDirection = 1;
+             				yBall = 1;
+             				break;
+          			case 6: // too far down
+             				yDirection = -1;
+             				yBall = 5;
+          		}
+
+          		// store the value in the appropriate row
+          		switch(yBall)
+          		{
+          		case 1:
+             			STORE(multiplierQuotient, ball);
+             			break;
+          		case 2:
+             			STORE(accumulator, ball);
+             			break;
+          		case 3:
+             			STORE(memoryBuffer, ball);
+             			break;
+          		case 4:
+             			STORE(memoryAddress, ball);
+             			break;
+          		case 5:
+             			STORE(programCounter, ball);
+             			break;
+          		default:
+             			break;
+          		}
+          		sleepTime = 50 * 1000;
+
+        	  }
+        	  break;
 			
 		  default:
 			STORE(programCounter,    rand() & programCounter[2]);
@@ -606,3 +705,5 @@ int main( int argc, char *argv[] )
 
   return 0;
 }
+
+
