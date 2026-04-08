@@ -18,11 +18,14 @@
  * The file gpio.c and gpio.h were copied from Oscar's PDP-8/simH project
  *
  * Modification Log:
- * Rev.  Date       By              Description
+ * Rev.  Date       By                 Description
  * ------------------------------------------------------------------------
- * 1.0   2016.02.23 Norman Davie    Initial release
- * 2.0   2016.02.26 Tim Wells       See details below
- * 
+ * 1.0   2016.02.23 Norman Davie       Initial release
+ * 2.0   2016.02.26 Tim Wells          See details below
+ * 2.01  2016.03.09 David C. Eilering  Minor bug fixes related to Link light
+ * 2.10  2016.03.12 David C. Eilering  Added Pong mode and minor bug fixes
+ * 2.20  2016.03.29 David C. Eilering  Added Text scroller mode
+ * 2.21  2016.03.30 David C. Eilering  Added loadMsg function
  *****************************************************************************
  * 	Version 2.0 by Tim Wells
  * 
@@ -34,7 +37,7 @@
  * 		001 = Snake Mode (3 LEDs move across a row then down to the next row in the opposite direction)
  * 		000 = Test Mode (All LEDs on steady, except some of the columns of LEDs on the right blink off for 20ms)
  *		010 = Pong Mode (Bouncing Ball)
- *		100 = {Spare}
+ *		100 = Text scroller
  * 
  * 	Expanded the timing switches from 6 to 12 switches
  * 		The third brown and third white switch groups control the maximum delay (slowest speed)
@@ -84,12 +87,81 @@
  *			sudo /usr/bin/deeper
  * 		
  *****************************************************************************
+ * 	Version 2.01 by David C. Eilering
+ *
+ *  Minor bug fixes related to the Link light
+ *
+ *  When switching from other modes to the Binary Clock mode (6) or the Dim mode (5), the Link light
+ *  isn't being reset.  If the Link light is on when the mode is switched, the Link light stays on
+ *  when the Binary Clock or Dim mode starts.  A consistent example of this bug can be seen by
+ *  switching from the Test mode (0) to the Binary Clock mode or Dim mode.  When switching from Normal
+ *  mode the bug only occurs if the Link light happened to be on when the mode is switched.  Resetting
+ *  the Link light in the Binary Clock mode and the Dim mode fixes this bug.
+ *****************************************************************************
+ * 	Version 2.10 by David C. Eilering
+ *
+ *  Removed random delay in Snake mode  
+ *  Added Pong mode (2) (written by Norman Davie)
+ *  Added feature to Pong mode to allow the switches to control the ball speed
+ *****************************************************************************
+ * 	Version 2.20 by David C. Eilering
+ *
+ *  Added Text scroller mode (4)
+ *
+ *  The Text scroller mode scrolls a text message using the 5 rows of 12 LEDs
+ *  (Program Counter, Memory Address, Memory Buffer, Accumulator, and
+ *  Multiplier Quotient).  The font used is a 5x5 font (with some letters not
+ *  using the full 5 pixel width).  The font includes all symbols from ASCII
+ *  32 (space) to ASCII 126 (tilde).  Characters outside of this range are
+ *  ignored.  When the message has finished scrolling, it repeats from the
+ *  beginning.  The program looks for a text file /home/pdp/scrollText.txt  If
+ *  the file is not found, a hard-coded welcome message is displayed.  If the
+ *  file is found the text is loaded from all lines into a single long string
+ *  of characters.  The characters are run together from one line to the next.
+ *  So, if a space is desired between lines, add a space to the end of the
+ *  line.  For example:
+ *  
+ *  This is a test.
+ *
+ *  is the same as (note the spaces at the beginning and end of some lines):
+ *
+ *  Th
+ *  is is 
+ *  a
+ *   te
+ *  st.
+ *
+ *  This allows very specific spacing of the message.  This also allows a
+ *  a message to contain a delay by adding a series of spaces in the message.
+ *  Since the message repeats, it's likely that 3 or 4 spaces are desired to
+ *  clear the display before the message starts again.
+ *
+ *  As with other modes that allow variable speed, the front panel switches
+ *  control the speed of the scrolling.
+ *****************************************************************************
+ * 	Version 2.21 by David C. Eilering
+ *
+ *  Added loadMsg function
+ *
+ *  Putting the file reading code into a function allows the loadMsg function
+ *  to be called within the main loop of the program.  This allows the message
+ *  to be modified by changing the file while the program is running.
+ *
+ *  Also changed the hard-coded message to mostly uppercase to improve
+ *  readability.  Added the date/time at the end of the message as a way to
+ *  demonstrate how messages can be changed dynamically.
+ *****************************************************************************
  */
+
+// (2026-04-08, JCR) - added for ILS compatibility
+#define _DEFAULT_SOURCE
+#include "gpio-common.h"
 
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
@@ -99,9 +171,12 @@ typedef signed int      int32;
 typedef unsigned short  uint16;
 typedef unsigned char   uint8;
 
+// (2026-04-08, JCR) - commented out for ILS compatibility
+/*
 extern void *blink(void *ptr);	// the real-time multiplexing process to start up
 extern uint32 ledstatus[8];     // bitfields: 8 ledrows of up to 12 LEDs
 extern uint32 switchstatus[3];  // bitfields: 3 rows of up to 12 switches
+*/
 
 
 #include <signal.h>
@@ -109,8 +184,8 @@ extern uint32 switchstatus[3];  // bitfields: 3 rows of up to 12 switches
 
 // GET / STORE             row   shift  mask value
 int programCounter[] 	= {0x00, 0,     07777};
-int dataField[] 	= {0x07, 9,     0777};
-int instField[] 	= {0x07, 6,     0777};
+int dataField[] 	= {0x07, 9,     07};
+int instField[] 	= {0x07, 6,     07};
 int linkLED[]           = {0x07, 5,     01};
 int memoryAddress[]     = {0x01, 0,     07777};
 int memoryBuffer[]      = {0x02, 0,     07777};
@@ -195,35 +270,69 @@ int rand_flag( int max_rand, int max_true )
 	}
 }
 
-void ClearAllLEDs()
+void ClearAllLEDs()	// function added by Norman Davie - used by Pong mode
 {
-    STORE(programCounter,    0);
-    STORE(dataField,         0);
-    STORE(instField,         0);
-    STORE(linkLED,           0);
-    STORE(programCounter,    0);
-    STORE(memoryAddress,     0);
-    STORE(memoryBuffer,      0);
-    STORE(accumulator,       0);
-    STORE(multiplierQuotient,0);
-    STORE(stepCounter,       0);
-    STORE(andLED,            0);
-    STORE(tadLED,            0);
-    STORE(iszLED,            0);
-    STORE(dcaLED,            0);
-    STORE(jmsLED,            0);
-    STORE(iotLED,            0);
-    STORE(jmpLED,            0);
-    STORE(oprLED,            0);
-    STORE(fetchLED,          0);
-    STORE(executeLED,        0);
-    STORE(deferLED,          0);
-    STORE(wordCountLED,      0);
-    STORE(currentAddressLED, 0);
-    STORE(breakLED,          0);
-    STORE(ionLED,            0);
-    STORE(pauseLED,          0);
-    STORE(runLED,            0);
+	STORE(programCounter,    0);
+	STORE(dataField,         0);
+	STORE(instField,         0);
+	STORE(linkLED,           0);
+	STORE(programCounter,    0);
+	STORE(memoryAddress,     0);
+	STORE(memoryBuffer,      0);
+	STORE(accumulator,       0);
+	STORE(multiplierQuotient,0);
+	STORE(stepCounter,       0);
+	STORE(andLED,            0);
+	STORE(tadLED,            0);
+	STORE(iszLED,            0);
+	STORE(dcaLED,            0);
+	STORE(jmsLED,            0);
+	STORE(iotLED,            0);
+	STORE(jmpLED,            0);
+	STORE(oprLED,            0);
+	STORE(fetchLED,          0);
+	STORE(executeLED,        0);
+	STORE(deferLED,          0);
+	STORE(wordCountLED,      0);
+	STORE(currentAddressLED, 0);
+	STORE(breakLED,          0);
+	STORE(ionLED,            0);
+	STORE(pauseLED,          0);
+	STORE(runLED,            0);
+}
+
+void loadMsg(char *tmpMsg) {
+	char my_line[256];
+	char *my_fname = "/home/pdp/scrollText.txt";
+	FILE *my_file;
+	my_file = fopen(my_fname, "r");
+	time_t t = time(NULL);
+	
+	strcpy(tmpMsg, "");
+	
+	if (my_file == NULL) {
+		strcat(tmpMsg, "WELCOME TO THE PiDP-8/I TEXT SCROLLER BY DAVID C. EILERING.   ");
+		strcat(tmpMsg, "TO CUSTOMIZE THIS MESSAGE, ENTER THE DESIRED TEXT INTO THE FILE ");
+		strcat(tmpMsg, my_fname);
+		strcat(tmpMsg, "   ");
+		strcat(tmpMsg, "FOR MORE INFORMATION, VISIT https://github.com/VentureKing/Deeper-Thought-2   ");
+		strcat(tmpMsg, "THE CURRENT DATE/TIME IS: ");
+		strcat(tmpMsg, asctime(localtime(&t)));
+		strcat(tmpMsg, "   ");
+	}
+	else {
+		while (fgets(my_line, sizeof(my_line), my_file)) {
+			// replace carriage return with null
+			for (int i = 255; i > 0; i--) {
+				if (my_line[i] == 0x0A) {
+					my_line[i] = 0x00;
+				}
+			}
+			
+			strcat(tmpMsg, my_line);
+		}
+		fclose(my_file);
+	}
 }
 
 
@@ -232,7 +341,7 @@ int main( int argc, char *argv[] )
   pthread_t     thread1;
   int           iret1;
   unsigned long sleepTime;
-  int           deeperThoughMode = 0;
+  int           deeperThoughtMode = 0;
   int           dontChangeLEDs = 0;
   unsigned long delayAmount;
   unsigned long varietyAmount;
@@ -255,14 +364,57 @@ int main( int argc, char *argv[] )
   
   swRegValue = 0;
   swStepValue = 0;
+  
+  
+  char chars[] = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
+	int letters[95] = {
+        0x00000003, 0x000000B9, 0x0000601B, 0x057D5F55, 0x04D7F595,
+        0x0888888D, 0x08225555, 0x00000019, 0x00001172, 0x00000E8A,
+        0x0513E455, 0x00008E23, 0x00000882, 0x00008423, 0x00000081,
+        0x00888885, 0x074EB975, 0x0847F285, 0x0956B5CD, 0x0556B58D,
+        0x0F90843D, 0x04D6B59D, 0x04D6B575, 0x0187A10D, 0x0556B555,
+        0x0756B515, 0x00000051, 0x00000A82, 0x00022A23, 0x00014A53,
+		0x00008A8B, 0x0106A105, 0x0726B175, 0x0F14A5F5, 0x0556B5FD,
+		0x08C63175, 0x074631FD, 0x08D6B5FD, 0x0094A5FD, 0x0ED6B175,
+		0x0F9084FD, 0x00023F8B, 0x07C63145, 0x08A884FD, 0x084210FD,
+		0x0F8882FD, 0x0FA082FD, 0x07463175, 0x0114A5FD, 0x087A3175,
+		0x0D14A5FD, 0x04D6B595, 0x0087E10D, 0x07C2107D, 0x03A2083D,
+		0x0FA088FD, 0x08A88A8D, 0x008B820D, 0x08CEB98D, 0x000011FA,
+		0x0820820D, 0x00001F8A, 0x00004113, 0x08421085, 0x0000020A,
+		0x0F56B54D, 0x064A52FD, 0x05463175, 0x0FCA5265, 0x0B56B575,
+		0x0084A5F5, 0x0756B595, 0x0C1084FD, 0x000000E9, 0x00361044,
+		0x08A884FD, 0x0002107B, 0x0F07C1F5, 0x0F0421FD, 0x07463175,
+		0x032529FD, 0x0FA52935, 0x010422FD, 0x04D6B595, 0x0442527D,
+		0x0FA2107D, 0x01B20C1D, 0x07C1F07D, 0x08A88A8D, 0x07D2949D,
+		0x08CEB98D, 0x00001B22, 0x000000F9, 0x000004DA, 0x01104115
+	};
+
+	char msg[2048] = "";
+	
+	int msgLen;
+	int charNum;
+	int charWidth;
+	int currChar;
+	int bank1     = 0;
+	int bank2     = 0;
+	int bank3     = 0;
+	int bank4     = 0;
+	int bank5     = 0;
+	int bankMask  = 0xFFF;
+	int letterGap = 1;
+	int msgPos    = 0;
+	int charPos   = 0;
+	
   // install handler to terminate future thread
   if( signal(SIGINT, sig_handler) == SIG_ERR )
     {
       fprintf( stderr, "Failed to install SIGINT handler.\n" );
       exit( EXIT_FAILURE );
     }
-
+  
+  // (2026-04-08, JCR) - commented out for ILS compatibility
+  /*
   // create thread
   iret1 = pthread_create( &thread1, NULL, blink, &terminate );
 
@@ -273,6 +425,14 @@ int main( int argc, char *argv[] )
     }
 
   sleep( 2 );			// allow 2 sec for multiplex to start
+  */
+
+  // (2026-04-08, JCR) - new code block for ILS compatibility
+  pidp8i_simple_gpio_mode = 1;
+  if (start_pidp8i_gpio_thread (1) != 0) {
+    fprintf( stderr, "Failed to start GPIO thread.  PiDP-8/I panel attached?\n" );
+    exit (EXIT_FAILURE);
+  }
 
   srand(time(NULL));
 
@@ -291,7 +451,7 @@ int main( int argc, char *argv[] )
     STORE(executeLED, 1);
     
 		// Use DF switches to control mode
-		deeperThoughMode = (GETSWITCHES(step) & 070)>>3;
+		deeperThoughtMode = (GETSWITCHES(step) & 070)>>3;
 		
 		// Get IF switches value
 		swIfValue = (GETSWITCHES(step) & 07);
@@ -317,9 +477,9 @@ int main( int argc, char *argv[] )
       varietyAmount = (unsigned long) (((rand() % delayAmount) / 63.0f) * varietyMult);
 
       sleepTime = delayAmount - varietyAmount;
-      
+	  
       // In future revisions, we'll have different randomization sequences
-      switch(deeperThoughMode)
+      switch(deeperThoughtMode)
       {
 		  case 3:	// 011 = Most LEDs Off
 			STORE(programCounter,    0);
@@ -389,6 +549,8 @@ int main( int argc, char *argv[] )
 			STORE(dataField,         0);
 			STORE(instField,         0);
 			//STORE(linkLED, rand_flag(100,20));
+			// Reset the Link light (bug fixed in v2.01 by David C. Eilering)
+			STORE(linkLED, 0);
 			STORE(deferLED, 0);
 			STORE(wordCountLED, 0);
 			STORE(currentAddressLED, 0);
@@ -417,6 +579,8 @@ int main( int argc, char *argv[] )
 			STORE(dataField,         0);
 			STORE(instField,         0);
 			//STORE(linkLED, rand_flag(100,20));
+			// Reset the Link light (bug fixed in v2.01 by David C. Eilering)
+			STORE(linkLED, 0);
 			STORE(deferLED, 0);
 			STORE(wordCountLED, 0);
 			STORE(currentAddressLED, 0);
@@ -510,10 +674,14 @@ int main( int argc, char *argv[] )
 			STORE(jmpLED, rand_flag(100,60));
 			STORE(iotLED, rand_flag(100,40));
 			STORE(oprLED, rand_flag(100,40));
+			
+			// Don't include random delay in snake mode (added v2.10 by David C. Eilering)
+			sleepTime = delayAmount;
 			break;
 			
-			break;
-      		  case 2: //010 pong / bouncing ball
+			// break;
+			
+			case 2: //010 pong / bouncing ball (by Norman Davie)
         	  {
          		static long xDirection = 1;
 	 	        static long yDirection = 1;
@@ -525,7 +693,7 @@ int main( int argc, char *argv[] )
           		// switch directions if we're too far right
           		if ((ball >> 1) < 1)
          		{
-            			xDirection = 1;
+            		xDirection = 1;
           		}
 
           		// switch directions if we're too far left
@@ -535,25 +703,25 @@ int main( int argc, char *argv[] )
 		        }
 
           		if (xDirection)
- 			{
-             			ball = ball << 1;
+				{
+             		ball = ball << 1;
           		}
 
           		if (xDirection)
-             			ball = ball << 1;
+             		ball = ball << 1;
           		else
-             			ball = ball >> 1;
+             		ball = ball >> 1;
 
           		yBall = yBall + yDirection;
           		switch(yBall)
           		{
           			case 0:  // too far up
-             				yDirection = 1;
-             				yBall = 1;
-             				break;
+             			yDirection = 1;
+             			yBall = 1;
+             			break;
           			case 6: // too far down
-             				yDirection = -1;
-             				yBall = 5;
+             			yDirection = -1;
+             			yBall = 5;
           		}
 
           		// store the value in the appropriate row
@@ -577,12 +745,90 @@ int main( int argc, char *argv[] )
           		default:
              			break;
           		}
-          		sleepTime = 50 * 1000;
+          		// sleepTime = 50 * 1000;
+				// Allow the switches to control the ball speed (added v2.10 by David C. Eilering)
+          		sleepTime = delayAmount;
 
         	  }
         	  break;
+			  
+		  case 4:	// text scroller (by David C. Eilering)
+			STORE(stepCounter, 0);
+			STORE(dataField,   0);
+			STORE(instField,   0);
+			STORE(linkLED,     0);
+
+			if (msgPos == 0 && charPos == 0) {
+				loadMsg(msg);
+				msgLen = strlen(msg);
+			}
+
+			// invalid character - skip it
+			if (msg[msgPos] < 32 || 126 < msg[msgPos]) {
+				msgPos++;
+				msgPos = msgPos % msgLen;
+				break;
+			}
 			
-		  default:
+			if (letterGap < 0) {
+				letterGap = 1;
+			}
+
+			// get letter
+			charNum = (strchr(chars, msg[msgPos]) - chars);
+			
+			if (charPos == 0) {
+				currChar = letters[charNum];
+				charWidth = currChar & 0x07;
+				currChar = currChar >> 3;
+				// currChar = currChar >> (charPos * 5 + 3);
+			}
+			else {
+				currChar = currChar >> 5;
+			}
+
+			if (currChar & 1)
+				bank1++;
+			
+			if (currChar & 2)
+				bank2++;
+
+			if (currChar & 4)
+				bank3++;
+
+			if (currChar & 8)
+				bank4++;
+
+			if (currChar & 16)
+				bank5++;
+			
+			charPos++;
+			
+			if (charPos >= (charWidth + letterGap)) {
+				charPos = 0;
+				msgPos++;
+				msgPos = msgPos % msgLen;
+			}
+
+			// display the banks
+			STORE(programCounter,    bank1 & programCounter[2]);
+			STORE(memoryAddress,     bank2 & memoryAddress[2]);
+			STORE(memoryBuffer,      bank3 & memoryBuffer[2]);
+			STORE(accumulator,       bank4 & accumulator[2]);
+			STORE(multiplierQuotient,bank5 & multiplierQuotient[2]);
+			
+			// shift the banks
+			bank1 = (bank1 << 1) & bankMask;
+			bank2 = (bank2 << 1) & bankMask;
+			bank3 = (bank3 << 1) & bankMask;
+			bank4 = (bank4 << 1) & bankMask;
+			bank5 = (bank5 << 1) & bankMask;
+			
+			sleepTime = delayAmount / 2;	// half the delay for text scroll
+			
+			break;
+			
+			default:
 			STORE(programCounter,    rand() & programCounter[2]);
 			STORE(memoryAddress,     rand() & memoryAddress[2]);
 			STORE(memoryBuffer,      rand() & memoryBuffer[2]);
@@ -633,7 +879,7 @@ int main( int argc, char *argv[] )
 	if(swStepValue != GETSWITCHES(step))
 	{
 		swStepValue = GETSWITCHES(step);
-		printf("Step Switch: Value=%lu  Mode=%i  IF Value=%i\n", swStepValue, deeperThoughMode, swIfValue);
+		printf("Step Switch: Value=%lu  Mode=%i  IF Value=%i\n", swStepValue, deeperThoughtMode, swIfValue);
 		
 	}
 	
@@ -705,5 +951,3 @@ int main( int argc, char *argv[] )
 
   return 0;
 }
-
-
