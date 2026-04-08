@@ -153,10 +153,6 @@
  *****************************************************************************
  */
 
-// (2026-04-08, JCR) - added for ILS compatibility
-#define _DEFAULT_SOURCE
-#include "gpio-common.h"
-
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -171,12 +167,9 @@ typedef signed int      int32;
 typedef unsigned short  uint16;
 typedef unsigned char   uint8;
 
-// (2026-04-08, JCR) - commented out for ILS compatibility
-/*
 extern void *blink(void *ptr);	// the real-time multiplexing process to start up
 extern uint32 ledstatus[8];     // bitfields: 8 ledrows of up to 12 LEDs
 extern uint32 switchstatus[3];  // bitfields: 3 rows of up to 12 switches
-*/
 
 
 #include <signal.h>
@@ -412,9 +405,7 @@ int main( int argc, char *argv[] )
       fprintf( stderr, "Failed to install SIGINT handler.\n" );
       exit( EXIT_FAILURE );
     }
-  
-  // (2026-04-08, JCR) - commented out for ILS compatibility
-  /*
+
   // create thread
   iret1 = pthread_create( &thread1, NULL, blink, &terminate );
 
@@ -425,14 +416,6 @@ int main( int argc, char *argv[] )
     }
 
   sleep( 2 );			// allow 2 sec for multiplex to start
-  */
-
-  // (2026-04-08, JCR) - new code block for ILS compatibility
-  pidp8i_simple_gpio_mode = 1;
-  if (start_pidp8i_gpio_thread (1) != 0) {
-    fprintf( stderr, "Failed to start GPIO thread.  PiDP-8/I panel attached?\n" );
-    exit (EXIT_FAILURE);
-  }
 
   srand(time(NULL));
 
