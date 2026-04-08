@@ -1,7 +1,7 @@
 # Deeper Thought 2
-A program that blinks the LEDs on the [PiDP-8 kit](http://obsolescence.wix.com/obsolescence#!pidp-8/cbie) created by Oscar Vermeulen. This program is C++ and does not run in the PDP-8 simulator. The default mode is designed to be similar to Steve Gibson's Deep Thought program for the PDP-8.
+A program that blinks the LEDs on the [PiDP-8 kit](https://obsolescence.wixsite.com/obsolescence/pidp-8) created by Oscar Vermeulen. This program is C++ and does not run in the PDP-8 simulator. The default mode is designed to be similar to Steve Gibson's Deep Thought program for the PDP-8.
 
-Deeper Thought 2 is a fork of [Deeper Thought by Norman Davie](https://groups.google.com/d/msg/pidp-8/tbciVNoZJbw/AMjywRKLAwAJ).  The file gpio.c and gpio.h were copied from Oscar Vermeulen's PDP-8/simH project.
+Deeper Thought 2 is a fork of [Deeper Thought by Norman Davie](https://groups.google.com/d/msg/pidp-8/tbciVNoZJbw/AMjywRKLAwAJ). The file gpio.c and gpio.h were copied from Oscar Vermeulen's PDP-8/simH project.
 
 **[Deeper Thought 2 Demo Video on YouTube](https://youtu.be/0OudB99Cccc)**
 
